@@ -27,19 +27,18 @@ The code is structured as follows:
 ```
 .
 ├── README.md
-├── demo.ipynb
 ├── documents
 │   ├── Mid-eval.pdf
 │   └── proposal.pdf
 ├── imgs
+|── main.py
 └── src
     ├── __init__.py
     ├── gmm.py
     ├── ui.py
-    ├── grabcut.py
-    └── main.py
+    └── grabcut.py
 ```
-In the above structure, the source code for the whole implementation can be found in the `src` directory. The scripts each contain a description of the functions/classes implemented and provide a wrapper to experiment with the flow of the program.
+In the above structure, the source code for the whole implementation can be found in the `src` directory. The scripts each contain a description of the functions/classes implemented and provide a wrapper to experiment with the flow of the program. The `main.py` accesses all these functionality provided in the `src` library.
 
 ## Run Demo
 
