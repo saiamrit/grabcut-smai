@@ -64,4 +64,4 @@ The `main.py` script in the repository is the main script which can be used to r
 3. After drawing the bounding box, release the mouse button and press `Enter key` to start the segmentation.
 4. The output will be generated and displayed on the output screen in a few seconds.
 
-For a more detailed report and analysis, we recommend to look into the presentation [here](./documents/mideval.pdf).
+For a more detailed report and analysis, we recommend to look into the presentation [here](./documents/mideval.pdf), also available [here](https://docs.google.com/presentation/d/19GnXUvxiNn3NGnubRpFsgUwSo3tyaixqB04HjuzGzyM/edit?usp=sharing).
