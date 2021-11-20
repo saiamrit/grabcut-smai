@@ -1,8 +1,6 @@
 import numpy as np
 import cv2 as cv
-from gmm import *
-from grabcut import *
-from ui import *
+from src import *
 import warnings
 warnings.filterwarnings("ignore")
 
