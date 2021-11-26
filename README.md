@@ -5,10 +5,12 @@ This repository contains code for the paper [Interactive Foreground Extraction u
 __Team Name__: Outliers
 
 **Team Members**:
-- Mehul Arora 
-- Neha S.
-- Sabyasachi Mukhopadhyay
 - Sai Amrit Patnaik 
+- Sabyasachi Mukhopadhyay
+- Neha S.
+- Mehul Arora 
+
+
 
 __Assigned TA__: Abhinaba Bala
 
