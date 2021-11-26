@@ -12,7 +12,7 @@ __Team Name__: Outliers
 
 
 
-__Assigned TA__  : Abhinaba Bala
+__Assigned TA__ : Abhinaba Bala
 
 # GrabCut
 GrabCut is an algorithm for image segmentation based on graph cuts. It is used to extract the foreground objects in images with minimal user interaction. Initially, the user needs to draw a bounding-box (i.e., a rectangle) around the foreground object to be segmented. Based on these regions, the color distribution of the foreground and the background objects are estimated by the algorithm using Gaussian mixture model. This is then followed by the iterative energy minimization process to get the best estimates and segment the foreground object.
