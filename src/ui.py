@@ -1,6 +1,6 @@
 import sys
 import os
-import cv2 as cv
+import cv2  
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -46,44 +46,44 @@ class EventHandler:
     def handler(self, event, x, y, flags, param):
 
         # Draw the rectangle first
-        if event == cv.EVENT_RBUTTONDOWN:
+        if event == cv2.EVENT_RBUTTONDOWN:
             self.FLAGS['DRAW_RECT'] = True
             self.ix, self.iy = x,y
 
-        elif event == cv.EVENT_MOUSEMOVE:
+        elif event == cv2.EVENT_MOUSEMOVE:
             if self.FLAGS['DRAW_RECT'] == True:
                 self.img = self.img2.copy()
-                cv.rectangle(self.img, (self.ix, self.iy), (x, y), self.COLORS['BLUE'], 2)
-                cv.rectangle(self._mask, (self.ix, self.iy), (x, y), self.FLAGS['value']['val'], -1)
+                cv2.rectangle(self.img, (self.ix, self.iy), (x, y), self.COLORS['BLUE'], 2)
+                cv2.rectangle(self._mask, (self.ix, self.iy), (x, y), self.FLAGS['value']['val'], -1)
                 self.FLAGS['RECT'] = (min(self.ix, x), min(self.iy, y), abs(self.ix - x), abs(self.iy - y))
                 self.FLAGS['rect_or_mask'] = 0
 
-        elif event == cv.EVENT_RBUTTONUP:
+        elif event == cv2.EVENT_RBUTTONUP:
             self.FLAGS['DRAW_RECT'] = False
             self.FLAGS['rect_over'] = True
-            cv.rectangle(self.img, (self.ix, self.iy), (x, y), self.COLORS['BLUE'], 2)
-            cv.rectangle(self._mask, (self.ix, self.iy), (x, y), self.FLAGS['value']['val'], -1)
+            cv2.rectangle(self.img, (self.ix, self.iy), (x, y), self.COLORS['BLUE'], 2)
+            cv2.rectangle(self._mask, (self.ix, self.iy), (x, y), self.FLAGS['value']['val'], -1)
             self.FLAGS['RECT'] = (min(self.ix, x), min(self.iy, y), abs(self.ix - x), abs(self.iy - y))
             self.FLAGS['rect_or_mask'] = 0
 
         
         # Draw strokes for refinement 
 
-        if event == cv.EVENT_LBUTTONDOWN:
+        if event == cv2.EVENT_LBUTTONDOWN:
             if self.FLAGS['rect_over'] == False:
                 print('Draw the rectangle first.')
             else:
                 self.FLAGS['DRAW_STROKE'] = True
-                cv.circle(self.img, (x,y), 3, self.FLAGS['value']['color'], -1)
-                cv.circle(self._mask, (x,y), 3, self.FLAGS['value']['val'], -1)
+                cv2.circle(self.img, (x,y), 3, self.FLAGS['value']['color'], -1)
+                cv2.circle(self._mask, (x,y), 3, self.FLAGS['value']['val'], -1)
 
-        elif event == cv.EVENT_MOUSEMOVE:
+        elif event == cv2.EVENT_MOUSEMOVE:
             if self.FLAGS['DRAW_STROKE'] == True:
-                cv.circle(self.img, (x, y), 3, self.FLAGS['value']['color'], -1)
-                cv.circle(self._mask, (x, y), 3, self.FLAGS['value']['val'], -1)
+                cv2.circle(self.img, (x, y), 3, self.FLAGS['value']['color'], -1)
+                cv2.circle(self._mask, (x, y), 3, self.FLAGS['value']['val'], -1)
 
-        elif event == cv.EVENT_LBUTTONUP:
+        elif event == cv2.EVENT_LBUTTONUP:
             if self.FLAGS['DRAW_STROKE'] == True:
                 self.FLAGS['DRAW_STROKE'] = False
-                cv.circle(self.img, (x, y), 3, self.FLAGS['value']['color'], -1)
-                cv.circle(self._mask, (x, y), 3, self.FLAGS['value']['val'], -1)
+                cv2.circle(self.img, (x, y), 3, self.FLAGS['value']['color'], -1)
+                cv2.circle(self._mask, (x, y), 3, self.FLAGS['value']['val'], -1)

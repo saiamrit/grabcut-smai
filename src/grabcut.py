@@ -25,8 +25,9 @@ DRAW_PR_FG = {'color' : COLORS['WHITE'], 'val' : 3}
 DRAW_BG = {'color' : COLORS['BLACK'], 'val' : 0}
 DRAW_FG = {'color' : COLORS['WHITE'], 'val' : 1}
 
-def load_image(filename, color_space='RGB', scale=0.5):
+def load_image(filename, color_space = 'RGB', scale=0.75):
     im = cv.imread(filename)
+    
     if color_space == "RGB":
         pass
 #         im = cv.cvtColor(im, cv.COLOR_BGR2RGB)
@@ -34,170 +35,237 @@ def load_image(filename, color_space='RGB', scale=0.5):
         im = cv.cvtColor(im, cv.COLOR_BGR2HSV)
     elif color_space == "LAB":
         im = cv.cvtColor(im, cv.COLOR_BGR2LAB)
+        
     if not scale == 1.0:
         im = cv.resize(im, (int(im.shape[1]*scale), int(im.shape[0]*scale)))
     return im
 
+class GrabCut:
+    def __init__(self, img, mask, n_iters, gamma=50, gmm_components=5, neighbours=8, rect=None):
+        # Save the image and it's size first
+        self.img = img.copy()
+        self.rows, self.cols, _ = self.img.shape
+        self.mask = mask.copy()
+        
+        # Set the mask with the probable foreground
+        if rect is not None:
+            self.mask[rect[1]:rect[1]+rect[3], rect[0]:rect[0]+rect[2]] = DRAW_PR_FG['val']
+        
+        # plt.imshow(self.mask)
+        
+        # Update pixel labels from the bounding box
+        self.classify_pixels()
+        
+        # Set the parameters
+        self.gamma = gamma
+        self.gmm_components = gmm_components
+        self.n_iters = n_iters
+        self.neighbours = neighbours
+        
+        # beta value for the smoothness term in the Gibbs energy function
+        self.beta = 0
+        
+        # Placeholders for shifted image values for pairwise computations
+        self.img_left = np.empty((self.rows, self.cols - 1))
+        self.img_up = np.empty((self.rows - 1, self.cols))
+        
+        # Add more placeholders if we want 8 connectivity
+        if self.neighbours == 8:
+            self.img_upleft = np.empty((self.rows - 1, self.cols - 1))
+            self.img_upright = np.empty((self.rows - 1, self.cols - 1))
+            
+        
+        # Placeholders for GMM models
+        self.gmm_fg = None
+        self.gmm_bg = None
+        self.comp_idx = np.empty((self.rows, self.cols), dtype=np.uint32)
+        
+        self.graph = None
+        self.graph_capacity = None
+        self.graph_source  = self.rows * self.cols
+        self.graph_sink = self.graph_source + 1
+        
+        # Now, we initialise the Gibbs functions and GMMs
+        self.compute_smoothness()
+        self.initialise_GMMs()
+        
+        # Start the GrabCut method
+        self.run()
+        
+        
+    def classify_pixels(self):#     print('bgd count: %d, fgd count: %d, uncertain count: %d' % (len(bgd_indexes[0]), len(fgd_indexes[0]), len(pr_indexes[0])))
 
-def construct_gc_graph(img,mask,gc_source,gc_sink,fgd_gmm,bgd_gmm,gamma,rows,cols,left_V, up_V, neighbours, upleft_V=None,upright_V=None):
-    bgd_indexes = np.where(mask.reshape(-1) == DRAW_BG['val'])
-    fgd_indexes = np.where(mask.reshape(-1) == DRAW_FG['val'])
-    pr_indexes = np.where(np.logical_or(mask.reshape(-1) == DRAW_PR_BG['val'],mask.reshape(-1) == DRAW_PR_FG['val']))
-#     print('bgd count: %d, fgd count: %d, uncertain count: %d' % (len(bgd_indexes[0]), len(fgd_indexes[0]), len(pr_indexes[0])))
-    edges = []
-    gc_graph_capacity = []
+        # Allocate the indices with foregorund and background pixels
+        self.bg_idx = np.where(np.logical_or(self.mask == DRAW_BG['val'], self.mask == DRAW_PR_BG['val']))
+        self.fg_idx = np.where(np.logical_or(self.mask == DRAW_FG['val'], self.mask == DRAW_PR_FG['val']))
+        # print(self.bg_idx[0].shape, self.fg_idx[0].shape)
     
-    edges.extend(list(zip([gc_source] * pr_indexes[0].size, pr_indexes[0])))
-    _D = -np.log(bgd_gmm.calc_prob(img.reshape(-1, 3)[pr_indexes]))
-    gc_graph_capacity.extend(_D.tolist())
+    def compute_smoothness(self):
+        """
+        Compute the pairwise smoothness term from the Gibbs energy function
+        """
+        # First compute all the differences
+        diff_left = self.img[:, 1:] - self.img[:, :-1]
+        diff_up = self.img[1:, :] - self.img[:-1, :]
+        
+        # Compute the sum of difference terms to get beta value
+        beta_sum = np.sum(np.square(diff_left)) + np.sum(np.square(diff_up))
+        # We need to divide the sum above to get the expectation value
+        n_avg = (2 * self.rows * self.cols) - self.cols - self.rows
+        
+        # Compute addditional difference if 8-neighbours are considered
+        if self.neighbours == 8:
+            diff_upleft = self.img[1:, 1:] - self.img[:-1, :-1]
+            diff_upright = self.img[1:, :-1] - self.img[:-1, 1:]
+            
+            # Update the beta related values as well
+            beta_sum += np.sum(np.square(diff_upleft)) + np.sum(np.square(diff_upright))
+            n_avg += (2 * self.rows * self.cols) - (2 * self.cols) - (2 * self.rows) + 2
+        
+        # Finally, compute the beta value
+        self.beta = n_avg / (2 * beta_sum)
+        
+        # Now, we need to compute the smoothness term V
+        self.V_left = self.gamma * np.exp(-self.beta * np.sum(np.square(diff_left), axis=2))
+        self.V_up = self.gamma * np.exp(-self.beta * np.sum(np.square(diff_up), axis=2))
+        
+        # Again, for the 8-neighbour case
+        if self.neighbours == 8:
+            self.V_upleft = self.gamma * np.exp(-self.beta * np.sum(np.square(diff_upleft), axis=2))
+            self.V_upright = self.gamma * np.exp(-self.beta * np.sum(np.square(diff_upright), axis=2))
     
-    edges.extend(list(zip([gc_sink] * pr_indexes[0].size, pr_indexes[0])))
-    _D = -np.log(fgd_gmm.calc_prob(img.reshape(-1, 3)[pr_indexes]))
-    gc_graph_capacity.extend(_D.tolist())
+    def initialise_GMMs(self):
+        # Initialise the GMM objects here
+        self.gmm_bg = GMM(self.img[self.bg_idx], self.gmm_components)
+        self.gmm_fg = GMM(self.img[self.fg_idx], self.gmm_components)
     
-    edges.extend(list(zip([gc_source] * bgd_indexes[0].size, bgd_indexes[0])))
-    gc_graph_capacity.extend([0] * bgd_indexes[0].size)
-    edges.extend(list(zip([gc_sink] * bgd_indexes[0].size, bgd_indexes[0])))
-    gc_graph_capacity.extend([9 * gamma] * bgd_indexes[0].size)
-    edges.extend(list(zip([gc_source] * fgd_indexes[0].size, fgd_indexes[0])))
-    gc_graph_capacity.extend([9 * gamma] * fgd_indexes[0].size)
-    edges.extend(list(zip([gc_sink] * fgd_indexes[0].size, fgd_indexes[0])))
-    gc_graph_capacity.extend([0] * fgd_indexes[0].size)
-
-    img_indexes = np.arange(rows*cols,dtype=np.uint32).reshape(rows,cols)
-    temp1 = img_indexes[:, 1:]
-    temp2 = img_indexes[:, :-1]
-    mask1 = temp1.reshape(-1)
-    mask2 = temp2.reshape(-1)
-    edges.extend(list(zip(mask1, mask2)))
-    gc_graph_capacity.extend(left_V.reshape(-1).tolist())
+    def run(self):
+        for iter_ in range(self.n_iters):
+            # print("Current iteration: {}".format(iter_))
+            self.assign_gmm_components()
+            # print("Assigned GMM components")
+            self.initialise_GMMs()
+            # print("Initialized GMMs for this iteration")
+            self.create_graph()
+            # print("Completed the creation of graphs")
+            self.estimate_segmentation()
+            # print("Estimated the segmentation")
     
-    temp1 = img_indexes[1:, 1:]
-    temp2 = img_indexes[:-1, :-1]
-    mask1 = temp1.reshape(-1)
-    mask2 = temp2.reshape(-1)
-    edges.extend(list(zip(mask1, mask2)))
-    gc_graph_capacity.extend(up_V.reshape(-1).tolist())
+    def assign_gmm_components(self):
+        #Step 1 in Figure 3: Assign GMM components to pixels
+        self.comp_idx[self.bg_idx] = self.gmm_bg.get_components(self.img[self.bg_idx])
+        self.comp_idx[self.fg_idx] = self.gmm_fg.get_components(self.img[self.fg_idx])
     
-    if neighbours == 8:
-        temp1 = img_indexes[1:, :]
-        temp2 = img_indexes[:-1, :]
-        mask1 = temp1.reshape(-1)
-        mask2 = temp2.reshape(-1)
+    def create_graph(self):
+        # Get the indices of foreground, background and soft labels
+        bg_idx = np.where(self.mask.reshape(-1) == DRAW_BG['val'])
+        fg_idx = np.where(self.mask.reshape(-1) == DRAW_FG['val'])
+        pr_idx = np.where(np.logical_or(self.mask.reshape(-1) == DRAW_PR_BG['val'], self.mask.reshape(-1) == DRAW_PR_FG['val']))
+        pr_idx_ = np.where(np.logical_or(self.mask == DRAW_PR_BG['val'], self.mask == DRAW_PR_FG['val']))
+        
+        # Prepare to create the graph
+        edges = []
+        self.graph_capacity = []
+        
+        # Create t-links (connect nodes to terminal nodes)
+        # Prob values to source
+        edges.extend(
+            list(zip([self.graph_source for ix in range(pr_idx[0].size)], pr_idx[0]))
+        )
+        
+        start_time = datetime.datetime.now()
+        start = datetime.datetime.now()
+        _D = self.gmm_bg.compute_D(self.img[pr_idx_])
+        self.graph_capacity.extend(_D.tolist())
+        # print("Background weight mean: {} | time taken: {}".format(_D.mean(), datetime.datetime.now() - start))
+        
+        
+        # prob values to sink
+        start = datetime.datetime.now()
+        edges.extend(
+            list(zip([self.graph_sink for ix in range(pr_idx[0].size)], pr_idx[0]))
+        )
+        # print("time taken for edge extend: {}".format(datetime.datetime.now() - start))
+        
+        
+        start = datetime.datetime.now()
+        _D = self.gmm_fg.compute_D(self.img[pr_idx_])
+        self.graph_capacity.extend(_D.tolist())
+        # print("Foreground weight mean: {} | time taken: {}".format(_D.mean(), datetime.datetime.now() - start))
+        # print("Time for whole chunk: {}".format(datetime.datetime.now() - start_time))
+        # Background to source
+        # print("Edges before FG abd BG: {}".format(len(edges)))
+        edges.extend(
+            list(zip([self.graph_source for ix in range(bg_idx[0].size)], bg_idx[0]))
+        )
+        self.graph_capacity.extend([0] * bg_idx[0].size)
+        
+        # background to sink
+        edges.extend(
+            list(zip([self.graph_sink for ix in range(bg_idx[0].size)], bg_idx[0]))
+        )
+        self.graph_capacity.extend([99 * self.gamma] * bg_idx[0].size)
+        
+        # Foreground to source
+        edges.extend(
+            list(zip([self.graph_source for ix in range(fg_idx[0].size)], fg_idx[0]))
+        )
+        self.graph_capacity.extend([99 * self.gamma] * fg_idx[0].size)
+        
+        # Foreground to sink
+        edges.extend(
+            list(zip([self.graph_sink for ix in range(fg_idx[0].size)], fg_idx[0]))
+        )
+        self.graph_capacity.extend([0] * fg_idx[0].size)
+        # print("Edges after FG abd BG: {}".format(len(edges)))
+        
+        
+        # Now we create n-links (connect nodes to other nodes (non-terminal))
+        img_indexes = np.arange(self.rows * self.cols, dtype=np.uint32).reshape(self.rows, self.cols)
+        
+        # get shifted indices and connect the points (left)
+        mask1 = img_indexes[:, 1:].reshape(-1)
+        mask2 = img_indexes[:, :-1].reshape(-1)
         edges.extend(list(zip(mask1, mask2)))
-        gc_graph_capacity.extend(upleft_V.reshape(-1).tolist())
+        self.graph_capacity.extend(self.V_left.reshape(-1).tolist())
         
-        temp1 = img_indexes[1:, :-1]
-        temp2 = img_indexes[:-1, 1:]
-        mask1 = temp1.reshape(-1)
-        mask2 = temp2.reshape(-1)
+        # get shifted indices and connect the points (up)
+        mask1 = img_indexes[1:, :].reshape(-1)
+        mask2 = img_indexes[:-1, :].reshape(-1)
         edges.extend(list(zip(mask1, mask2)))
-        gc_graph_capacity.extend(upright_V.reshape(-1).tolist())
+        self.graph_capacity.extend(self.V_up.reshape(-1).tolist())
         
-    gc_graph = ig.Graph(cols * rows + 2)
-    gc_graph.add_edges(edges)
-    return gc_graph,gc_source,gc_sink,gc_graph_capacity
-
-def estimate_segmentation(mask,gc_graph,gc_source,gc_sink,gc_graph_capacity,rows,cols):
-    mincut = gc_graph.st_mincut(gc_source,gc_sink, gc_graph_capacity)
-#     print('foreground pixels: %d, background pixels: %d' % (len(mincut.partition[0]), len(mincut.partition[1])))
-    pr_indexes = np.where(np.logical_or(mask == DRAW_PR_BG['val'], mask == DRAW_PR_FG['val']))
-    img_indexes = np.arange(rows * cols,dtype=np.uint32).reshape(rows, cols)
-    mask[pr_indexes] = np.where(np.isin(img_indexes[pr_indexes], mincut.partition[0]),DRAW_PR_FG['val'], DRAW_PR_BG['val'])
-    bgd_indexes = np.where(np.logical_or(mask == DRAW_BG['val'],mask == DRAW_PR_BG['val']))
-    fgd_indexes = np.where(np.logical_or(mask == DRAW_FG['val'],mask == DRAW_PR_FG['val']))
-#     print('probble background count: %d, probable foreground count: %d' % (bgd_indexes[0].size,fgd_indexes[0].size))
-    return pr_indexes,img_indexes,mask,bgd_indexes,fgd_indexes
-
-def classify_pixels(mask):
-    bgd_indexes = np.where(np.logical_or(mask == DRAW_BG['val'], mask == DRAW_PR_BG['val']))
-    fgd_indexes = np.where(np.logical_or(mask == DRAW_FG['val'], mask == DRAW_PR_FG['val']))
-    return fgd_indexes, bgd_indexes
-
-def compute_smoothness(img, rows, cols, neighbours):
-    left_diff = img[:, 1:] - img[:, :-1]
-    up_diff = img[1:, :] - img[:-1, :]
-    sq_left_diff = np.square(left_diff)
-    sq_up_diff = np.square(up_diff)
-    beta_sum = (np.sum(sq_left_diff) + np.sum(sq_up_diff))
-    avg = (2 * rows * cols) - cols - rows
-
-    if neighbours == 8:
-        upleft_diff = img[1:, 1:] - img[:-1, :-1]
-        upright_diff = img[1:, :-1] - img[:-1, 1:]
-        sq_upleft_diff = np.square(upleft_diff)
-        sq_upright_diff = np.square(upright_diff)
-        beta_sum += np.sum(sq_upleft_diff) + np.sum(sq_upright_diff)
-        avg += (2 * rows * cols) - (2 * cols) - (2 * rows) + 2
-
-    
-    beta = avg / (2 * beta_sum)
-#     print('Beta:',beta)
-    left_V = gamma * np.exp(-beta * np.sum(np.square(left_diff), axis=2))
-    up_V = gamma * np.exp(-beta * np.sum(np.square(up_diff), axis=2))
-    
-    if neighbours == 8:
-        upleft_V = gamma / np.sqrt(2) * np.exp(-beta * np.sum(np.square(upleft_diff), axis=2))
-        upright_V = gamma / np.sqrt(2) * np.exp(-beta * np.sum(np.square(upright_diff), axis=2))
-        return gamma, left_V, up_V, upleft_V, upright_V
-    else:
-        return gamma, left_V, up_V, None, None
-
-def initialize_gmm(img, bgd_indexes, fgd_indexes, gmm_components):
-    bgd_gmm = GaussianMixture(img[bgd_indexes], gmm_components)
-    fgd_gmm = GaussianMixture(img[fgd_indexes], gmm_components)
-    
-    return fgd_gmm, bgd_gmm
-
-def GrabCut(img, mask, rect, gmm_components, gamma, neighbours, n_iters):
-    img = np.asarray(img, dtype=np.float64)
-    rows,cols, _ = img.shape
-    if rect is not None:
-        mask[rect[1]:rect[1] + rect[3],rect[0]:rect[0] + rect[2]] = DRAW_PR_FG['val']
-
-    fgd_indexes, bgd_indexes = classify_pixels(mask)
-    
-    gmm_components = gmm_components
-    gamma = gamma
-    beta = 0
-    neighbours = neighbours
-    
-    left_V = np.empty((rows,cols - 1))
-    up_V = np.empty((rows - 1,cols))
-    
-    if neighbours == 8:
-        upleft_V = np.empty((rows - 1,cols - 1))
-        upright_V = np.empty((rows - 1,cols - 1))
+        # For 8-connectivity
+        if self.neighbours == 8:
+            # get shifted indices and connect the points (up-left)
+            mask1 = img_indexes[1:, 1:].reshape(-1)
+            mask2 = img_indexes[:-1, :-1].reshape(-1)
+            edges.extend(list(zip(mask1, mask2)))
+            self.graph_capacity.extend(self.V_upleft.reshape(-1).tolist())
+            
+            # get shifted indices and connect the points (up-right)
+            mask1 = img_indexes[1:, :-1].reshape(-1)
+            mask2 = img_indexes[:-1, 1:].reshape(-1)
+            edges.extend(list(zip(mask1, mask2)))
+            self.graph_capacity.extend(self.V_upright.reshape(-1).tolist())
         
-    bgd_gmm = None
-    fgd_gmm = None
+        # Construct the graph and add the edges
+        self.graph = ig.Graph(self.cols * self.rows + 2)
+        self.graph.add_edges(edges)
     
-    comp_idxs = np.empty((rows,cols), dtype=np.uint32)
-    
-    gc_graph = None
-    gc_graph_capacity = None
-    gc_source = cols*rows
-    gc_sink = gc_source + 1
-
-    gamma, left_V, up_V, upleft_V, upright_V = compute_smoothness(img, rows, cols, neighbours)
-    fwd_gmm, bgd_gmm = initialize_gmm(img, bgd_indexes, fgd_indexes, gmm_components)
-    
-    n_iters = n_iters
-    for iters in range(n_iters):
-        fgd_gmm, bgd_gmm = initialize_gmm(img, bgd_indexes, fgd_indexes, gmm_components)
+    def estimate_segmentation(self):
+        # Apply the mincut algorithm first
+        start = datetime.datetime.now()
+        mincut = self.graph.st_mincut(self.graph_source, self.graph_sink, self.graph_capacity)
         
-        if neighbours == 8:
-            gc_graph,gc_source,gc_sink,gc_graph_capacity = construct_gc_graph(img,mask,gc_source,gc_sink,
-                                                                              fgd_gmm,bgd_gmm,gamma,rows,
-                                                                              cols,left_V, up_V, neighbours, 
-                                                                              upleft_V, upright_V)
-        else:
-            gc_graph,gc_source,gc_sink,gc_graph_capacity = construct_gc_graph(img,mask,gc_source,gc_sink,
-                                                                              fgd_gmm,bgd_gmm,gamma,rows,
-                                                                              cols,left_V, up_V, neighbours,
-                                                                              upleft_V=None, upright_V=None)
-
-        pr_indexes,img_indexes,mask,bgd_indexes,fgd_indexes = estimate_segmentation(mask,gc_graph,gc_source,
-                                                                                    gc_sink,gc_graph_capacity,
-                                                                                    rows,cols)
-    return mask
+        # print("Mincut time: {}".format(datetime.datetime.now() - start))
+        # Compute the probability indices
+        pr_idx = np.where(np.logical_or(self.mask == DRAW_PR_BG['val'], self.mask == DRAW_PR_FG['val']))
+        img_idx = np.arange(self.rows * self.cols, dtype=np.uint32).reshape((self.rows, self.cols))
+        
+        # Update mask with foregrund and background values and update indices
+        self.mask[pr_idx] = np.where(np.isin(img_idx[pr_idx], mincut.partition[0]), DRAW_PR_FG['val'], DRAW_PR_BG['val'])
+        
+        # print(np.unique(self.mask.flatten(), return_counts=True))
+        
+        self.classify_pixels()
