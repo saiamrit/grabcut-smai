@@ -60,10 +60,55 @@ The sample images on which we ran our code can be found in the `imgs` folder. Th
 
 ### Running the demo
 
-The `main.py` script in the repository is the main script which can be used to run the demo. The instructions to run the script is:
-1. The interactive UI is generated which has the input image which is to be segmented.
-2. Press the Left mouse button and drag over the screen over the section of the image to mark as foreground.
-3. After drawing the bounding box, release the mouse button and press `Enter` key to start the segmentation.
-4. The output will be generated and displayed on the output screen in a few seconds.
+The `main.py` script in the repository is the main script which can be used to run the demo. The same code is also in the `demo.ipynb` notebook and the full working notebook with all the code at one place is in the `notebooks/Grabcut Full.ipynb`. 
 
-For a more detailed report and analysis, we recommend to look into the presentation [here](./documents/mideval.pdf), also available [here](https://docs.google.com/presentation/d/19GnXUvxiNn3NGnubRpFsgUwSo3tyaixqB04HjuzGzyM/edit?usp=sharing).
+The program accepts command line parameters such as the example given below:
+
+```
+python main.py --image_path <path to input image>
+```
+The above command takes the input image from the specified path and returns a segmented output on the output screen.
+
+The instructions to run the script is:
+1. Run the above command.
+2. The interactive UI is generated which has the input image which is to be segmented.
+3. Press the Right mouse button and drag over the screen over the section of the image to mark as foreground.
+4. After drawing the bounding box, release the mouse button and press `Enter` key to start the segmentation.
+5. The output will be generated and displayed on the output screen in a few seconds.
+
+#### For Interactive Improvement
+
+- Press `0` to mark as `background` or `1` to mark as `foreground` and press `Enter` again to update the result
+
+For more information on the possible parameters, we can also check the help flag as follows:
+```
+python main.py --help
+
+usage: main.py [-h] [--input_path INPUT_PATH] [--n_iters N_ITERS]
+               [--gamma GAMMA] [--gmm_components GMM_COMPONENTS]
+               [--neighbours NEIGHBOURS] [--color_space COLOR_SPACE]
+
+Grabcut Segmentation parameters Parser.
+Pass the parameters following instructions given below to run the demo experiment.
+
+optional arguments:
+  -h, --help                       :  show this help message and exit
+  --input_path INPUT_PATH          :  Path to image for processing
+  --n_iters N_ITERS                :  No of iterations to run
+  --gamma GAMMA                    :  Value for Gamma parameter
+  --gmm_components GMM_COMPONENTS  :  Number of GMM components for each GMM
+  --neighbours NEIGHBOURS          :  8 or 4 connectivity to be considered
+  --color_space COLOR_SPACE        :  Parameter value for beta
+
+```
+As shown above, the parameters listed in the help menu can be altered via the command line. We show some ablation study over the various parameters like:
+1. Number of Iterations
+2. Number of GMM components
+3. The Gamma Parameter
+4. 4 or 8 neighbours connectivity
+5. Color Space of the Input Image
+6. Size of the initial bounding box
+
+We present the results and reasonings behind the demonstrated behaviour by the method across the various parameters. 
+
+For a more detailed report and analysis, we recommend to look into the report [X](./documents/report.pdf) presentation [here](./documents/mideval.pdf), also available [here](https://docs.google.com/presentation/d/19GnXUvxiNn3NGnubRpFsgUwSo3tyaixqB04HjuzGzyM/edit?usp=sharing).
