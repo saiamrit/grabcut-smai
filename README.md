@@ -111,4 +111,4 @@ As shown above, the parameters listed in the help menu can be altered via the co
 
 We present the results and reasonings behind the demonstrated behaviour by the method across the various parameters. 
 
-For a more detailed report and analysis, we recommend to look into the report [X](./documents/report.pdf) presentation [here](./documents/mideval.pdf), also available [here](https://docs.google.com/presentation/d/19GnXUvxiNn3NGnubRpFsgUwSo3tyaixqB04HjuzGzyM/edit?usp=sharing).
+For a more detailed report and analysis, we recommend to look into the [report](./documents/report.pdf) or presentation [here](./documents/Final_presentation.pdf), also available [here](https://docs.google.com/presentation/d/1RCH6-OSRhEoVSDTyqif8wtkfzfcfS08E_JSy222Vr7M/edit?usp=sharing).
